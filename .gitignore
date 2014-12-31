@@ -33,3 +33,4 @@ build
 # Temporary editor files
 *.sw?
 *~
+.ycm_extra_conf
