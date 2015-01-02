@@ -34,9 +34,9 @@ event_handle::~event_handle() noexcept {
    }
 }
 
-void event_handle::register_handle(native_handle_type new_handle) {
+void event_handle::register_handle(native_handle_type new_handle, mode flags) {
    if (handle != new_handle) {
-      engine.start_monitoring(*this);
+      engine.start_monitoring(*this, flags);
       close_handle();
       handle = new_handle;
    }

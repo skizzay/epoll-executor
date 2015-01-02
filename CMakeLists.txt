@@ -24,3 +24,4 @@ project(epoll-executor)
 include_directories(${CMAKE_SOURCE_DIR} /home/andrew/third-party/executors/include)
 
 add_subdirectory(src)
+add_subdirectory(application/unit_tests)

@@ -1,5 +1,6 @@
 // vim: sw=3 ts=3 expandtab cindent
 #include "signal_manager.h"
+#include "event_engine.h"
 #include <sys/signalfd.h>
 
 namespace {
@@ -21,6 +22,7 @@ signal_manager::signal_manager(event_engine &e) :
    signals()
 {
    (void)::sigemptyset(&signals);
+   e.set_signal_manager(this);
 }
 
 
@@ -35,13 +37,13 @@ void signal_manager::monitor_signal(native_handle_type signum) {
 
 
 void signal_manager::update_signal_handle() {
-   native_handle_type new_handle = ::signalfd(native_handle(), &signal_set(), SFD_NONBLOCK | SFD_CLOEXEC);
+   auto new_handle = ::signalfd(native_handle(), &signals, SFD_NONBLOCK | SFD_CLOEXEC);
 
    if (new_handle < 0) {
       throw_system_error("Failed to create signal handle.");
    }
 
-   register_handle(new_handle);
+   register_handle(new_handle, mode::urgent_read);
 }
 
 }
