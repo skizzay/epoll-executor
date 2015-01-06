@@ -5,6 +5,7 @@
 #include "notification.h"
 #include <experimental/executor>
 #include <atomic>
+#include <chrono>
 #include <memory>
 
 namespace epolling {
@@ -20,7 +21,8 @@ class event_engine : public std::experimental::execution_context {
    friend class signal_manager;
 
 public:
-   typedef std::chrono::nanoseconds duration_type;
+   //typedef std::chrono::nanoseconds duration_type;
+   using duration_type = std::chrono::nanoseconds;
 
    static const duration_type wait_forever;
 
@@ -57,12 +59,15 @@ private:
    void stop_monitoring(event_handle &handle);
    void set_signal_manager(signal_manager *manager);
    bool do_poll(std::size_t max_events_to_poll, duration_type timeout);
+   void do_stop(std::error_code reason);
+   void do_run(duration_type timeout);
 
    std::error_code stop_reason;
    notification *wakeup;
    event_service *service;
    std::size_t max_events_per_poll;
    std::atomic<bool> exit_flag;
+   std::atomic<bool> quitting;
    std::atomic<std::ptrdiff_t> execution_count;
 };
 

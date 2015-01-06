@@ -3,9 +3,9 @@
 #include "event_service.h"
 #include "notification.h"
 #include "signal_manager.h"
-#include <chrono>
 #include <iostream>
 
+using std::make_error_code;
 using std::move;
 
 namespace {
@@ -59,6 +59,7 @@ event_engine::event_engine() :
    service(nullptr),
    max_events_per_poll(0U),
    exit_flag(),
+   quitting(),
    execution_count()
 {
 }
@@ -66,8 +67,9 @@ event_engine::event_engine() :
 
 event_engine::~event_engine() noexcept {
    try {
+      quitting = true;
       if (running()) {
-         wakeup->set(1);
+         do_stop(make_error_code(std::errc::operation_canceled));
          while (running()) {
             std::this_thread::yield();
          }
@@ -82,21 +84,9 @@ event_engine::~event_engine() noexcept {
 
 
 std::error_code event_engine::run(duration_type timeout) {
-   reset_for_execution ignored{exit_flag, execution_count, stop_reason};
-   std::chrono::steady_clock::time_point current_time(std::chrono::steady_clock::now());
-   std::chrono::steady_clock::time_point stop_time(current_time + timeout);
-
-   while (!timeout_expired(current_time, stop_time, timeout) && !exit_flag.load(std::memory_order_acquire)) {
-      std::error_code run_error;
-      tie(run_error, std::ignore) = service->poll(max_events_per_poll, time_remaining(current_time, stop_time, timeout));
-      if (run_error) {
-         stop(run_error);
-      }
-      current_time = std::chrono::steady_clock::now();
+   if (!quitting) {
+      do_run(timeout);
    }
-
-   (void)ignored;
-
    return stop_reason;
 }
 
@@ -112,10 +102,8 @@ bool event_engine::poll_one(duration_type timeout) {
 
 
 void event_engine::stop(std::error_code reason) {
-   bool expected = false;
-   if (exit_flag.compare_exchange_weak(expected, true, std::memory_order_acq_rel, std::memory_order_relaxed) && !expected) {
-      stop_reason = move(reason);
-      wakeup->set(1);
+   if (!quitting) {
+      do_stop(move(reason));
    }
 }
 
@@ -139,10 +127,42 @@ void event_engine::set_signal_manager(signal_manager *manager) {
 }
 
 
-bool event_engine::do_poll(std::size_t max_events_to_poll, duration_type timeout) {
+bool event_engine::do_poll(std::size_t max_events_to_poll, event_engine::duration_type timeout) {
+   bool result = false;
+
+   if (!quitting) {
+      reset_for_execution ignored{exit_flag, execution_count, stop_reason};
+      result = service->poll(max_events_to_poll, timeout).second;
+      (void)ignored;
+   }
+
+   return result;
+}
+
+
+void event_engine::do_stop(std::error_code reason) {
+   bool expected = false;
+   if (exit_flag.compare_exchange_weak(expected, true, std::memory_order_acq_rel, std::memory_order_relaxed) && !expected) {
+      stop_reason = move(reason);
+      wakeup->set(1);
+   }
+}
+
+
+void event_engine::do_run(duration_type timeout) {
    reset_for_execution ignored{exit_flag, execution_count, stop_reason};
+   std::chrono::steady_clock::time_point current_time(std::chrono::steady_clock::now());
+   std::chrono::steady_clock::time_point stop_time(current_time + timeout);
+
+   while (!timeout_expired(current_time, stop_time, timeout) && !exit_flag.load(std::memory_order_acquire)) {
+      std::error_code run_error;
+      tie(run_error, std::ignore) = service->poll(max_events_per_poll, time_remaining(current_time, stop_time, timeout));
+      if (run_error) {
+         stop(run_error);
+      }
+      current_time = std::chrono::steady_clock::now();
+   }
    (void)ignored;
-   return service->poll(max_events_to_poll, timeout).second;
 }
 
 }
