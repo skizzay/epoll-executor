@@ -8,7 +8,6 @@
 
 namespace epolling {
 
-class event_engine;
 class event_handle;
 enum class mode;
 
@@ -24,7 +23,7 @@ public:
    virtual std::pair<std::error_code, bool> poll(std::size_t max_events, std::chrono::nanoseconds timeout) = 0;
 
 protected:
-   explicit event_service(event_engine &);
+   explicit event_service(std::experimental::execution_context &);
 };
 
 }

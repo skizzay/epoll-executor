@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
+add_compile_options(-g)
 add_compile_options(-std=c++1y)
 add_compile_options(-Wall)
 add_compile_options(-Wextra)
@@ -21,7 +22,7 @@ endif()
 
 project(epoll-executor)
 
-include_directories(${CMAKE_SOURCE_DIR} /home/andrew/third-party/executors/include)
+include_directories(${CMAKE_SOURCE_DIR}/src /home/andrew/third-party/executors/include)
 
 add_subdirectory(src)
 add_subdirectory(application/unit_tests)

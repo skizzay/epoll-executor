@@ -10,7 +10,7 @@ namespace epolling {
 
 class epoll_service : public event_service {
 public:
-   explicit epoll_service(event_engine &engine);
+   explicit epoll_service(std::experimental::execution_context &e);
    virtual ~epoll_service() noexcept final override;
 
    virtual void start_monitoring(event_handle &handle, mode flags) final override;
@@ -20,8 +20,6 @@ public:
 
 
 private:
-   void close_handle(native_handle_type handle);
-   void stop_monitoring(native_handle_type handle);
    virtual void shutdown_service() final override;
 
    native_handle_type epoll_fd;

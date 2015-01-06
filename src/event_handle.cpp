@@ -1,32 +1,43 @@
 // vim: sw=3 ts=3 expandtab cindent
 #include "event_handle.h"
 #include "event_engine.h"
+#include "bits/exceptions.h"
 #include <iostream>
-#include <system_error>
 #include <unistd.h>
 
-namespace {
+using std::swap;
 
-inline void throw_system_error(const char *what) throw(std::system_error) {
-   using std::make_error_code;
-   auto error = make_error_code(static_cast<std::errc>(errno));
-   throw std::system_error(error, what);
-}
-
-}
 
 namespace epolling {
 
-event_handle::event_handle(event_engine &e) :
-   engine(e),
+event_handle::event_handle(event_engine &e, native_handle_type h, mode flags) :
+   event_loop(e),
+   handle(safe([handle=h] { return handle; }, "Cannot register invalid handle."))
+{
+   e.start_monitoring(*this, flags);
+}
+
+
+event_handle::event_handle(event_handle &&other) :
+   event_loop(other.engine()),
    handle(-1)
 {
+   swap(handle, other.handle);
+}
+
+
+event_handle& event_handle::operator =(event_handle &&other) {
+   if (this != &other) {
+      close();
+      swap(handle, other.handle);
+   }
+   return *this;
 }
 
 
 event_handle::~event_handle() noexcept {
    try {
-      close_handle();
+      close();
    }
    catch (const std::exception &e) {
       std::cerr << e.what() << std::endl;
@@ -34,23 +45,30 @@ event_handle::~event_handle() noexcept {
    }
 }
 
-void event_handle::register_handle(native_handle_type new_handle, mode flags) {
-   if (handle != new_handle) {
-      engine.start_monitoring(*this, flags);
-      close_handle();
-      handle = new_handle;
+
+int event_handle::read(void *data, std::size_t num_bytes) {
+   return safe([=] { return ::read(native_handle(), data, num_bytes); },
+               "Failed to read from handle.");
+}
+
+
+int event_handle::write(const void *data, std::size_t num_bytes) {
+   return safe([=] { return ::write(native_handle(), data, num_bytes); },
+               "Failed to write to handle.");
+}
+
+
+void event_handle::close() {
+   if (0 < native_handle()) {
+      stop_monitoring();
+      (void)safe([this] { return ::close(native_handle()); }, "Failed to close handle.");
+      handle = -1;
    }
 }
 
 
-void event_handle::close_handle() {
-   if (0 > handle) {
-      if (0 > ::close(handle)) {
-         throw_system_error("Failed to close handle.");
-      }
-      engine.stop_monitoring(*this);
-      handle = -1;
-   }
+void event_handle::stop_monitoring() {
+   engine().stop_monitoring(*this);
 }
 
 }

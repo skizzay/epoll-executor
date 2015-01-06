@@ -2,10 +2,10 @@
 #include "epoll_service.h"
 #include "event_engine.h"
 #include "event_handle.h"
+#include "bits/exceptions.h"
 #include <algorithm>
 #include <cstring>
 #include <iostream>
-#include <system_error>
 #include <vector>
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
@@ -18,16 +18,6 @@ using std::make_error_code;
 using std::make_pair;
 
 namespace {
-
-inline void reset_errno() {
-   errno = 0;
-}
-
-inline void throw_system_error(const char *what) {
-   auto error = make_error_code(static_cast<std::errc>(errno));
-   throw std::system_error(error, what);
-}
-
 
 inline uint32_t set_flag(epolling::mode in_flag, epolling::mode flags, uint32_t out_flag) {
    return (static_cast<uint32_t>(in_flag) & static_cast<uint32_t>(flags)) ? out_flag : 0;
@@ -69,19 +59,23 @@ constexpr bool is_error(uint32_t flags) {
 }
 
 auto fire_event_callbacks = [](::epoll_event &event) {
+#if 1
    auto *handler = static_cast<epolling::event_handle*>(event.data.ptr);
 
    if (is_error(event.events)) {
       handler->on_error();
    }
 
-   if (is_read(event.events)) {
-      handler->on_read();
-   }
-
    if (is_write(event.events)) {
       handler->on_write();
    }
+
+   if (is_read(event.events)) {
+      handler->on_read();
+   }
+#else
+   (void)event;
+#endif
 };
 
 }
@@ -89,44 +83,36 @@ auto fire_event_callbacks = [](::epoll_event &event) {
 
 namespace epolling {
 
-epoll_service::epoll_service(event_engine &engine) :
-   event_service(engine),
-   epoll_fd(::epoll_create1(EPOLL_CLOEXEC)),
+epoll_service::epoll_service(std::experimental::execution_context &e) :
+   event_service(e),
+   epoll_fd(-1),
    signals(nullptr)
 {
-   if (epoll_fd < 0) {
-      throw_system_error("Failed to create epoll file descriptor.");
-   }
+   epoll_fd = safe([]{ return ::epoll_create1(EPOLL_CLOEXEC); },
+                   "Failed to create epoll file descriptor.");
 }
 
 
 epoll_service::~epoll_service() noexcept {
-   try {
-      shutdown_service();
-   }
-   catch (const std::exception &e) {
-      std::cerr << "Failed to shutdown service. " << e.what() << std::endl;
-      abort();
-   }
 }
 
 
 void epoll_service::start_monitoring(event_handle &handle, mode flags) {
-   epoll_event ev = { convert_flags(flags), {&handle} };
-
-   if (0 > ::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, handle.native_handle(), &ev)) {
-      throw_system_error("Failed to add handle to epoll.");
-   }
+   (void)safe([&handle, flags, this] {
+         epoll_event ev = {convert_flags(flags), {&handle}};
+         return ::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, handle.native_handle(), &ev);
+      }, "Failed to register handle to epoll.");
 }
 
 
 void epoll_service::stop_monitoring(event_handle &handle) {
-   stop_monitoring(handle.native_handle());
+   (void)safe([&handle, this] { return ::epoll_ctl(epoll_fd, EPOLL_CTL_DEL, handle.native_handle(), nullptr); },
+              "Failed to unregister handle with epoll.");
 }
 
 
 void epoll_service::block_on_signals(const ::sigset_t *signal_set) {
-   if (signals != nullptr) {
+   if ((signals != nullptr) && (signals != signal_set) && (signal_set != nullptr)) {
       errno = EAGAIN;
       throw_system_error("Cannot register more than one signal manager with epoll.");
    }
@@ -135,13 +121,13 @@ void epoll_service::block_on_signals(const ::sigset_t *signal_set) {
 
 
 std::pair<std::error_code, bool> epoll_service::poll(std::size_t max_events, std::chrono::nanoseconds timeout) {
-   std::vector<::epoll_event> events{max_events, ::epoll_event{0U, {nullptr}}};;
+   std::vector<::epoll_event> events{max_events, ::epoll_event{0U, {nullptr}}};
    reset_errno();
    int num_events = do_poll(epoll_fd, events.data(), events.size(),
                             std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count(),
                             signals);
 
-   if (0 > num_events) {
+   if (0 < num_events) {
       std::for_each(begin(events), begin(events) + num_events, fire_event_callbacks);
       return make_pair(std::error_code{}, true);
    }
@@ -153,26 +139,9 @@ std::pair<std::error_code, bool> epoll_service::poll(std::size_t max_events, std
 }
 
 
-void epoll_service::close_handle(native_handle_type handle) {
-   if (0 > ::close(handle)) {
-      throw_system_error("Failed to close handle.");
-   }
-   stop_monitoring(handle);
-}
-
-
-void epoll_service::stop_monitoring(native_handle_type handle) {
-   if (handle != epoll_fd) {
-      if (0 > ::epoll_ctl(epoll_fd, EPOLL_CTL_DEL, handle, nullptr)) {
-         throw_system_error("Failed to unregister handle with epoll.");
-      }
-   }
-}
-
-
 void epoll_service::shutdown_service() {
    if (0 < epoll_fd) {
-      close_handle(epoll_fd);
+      (void)safe([=] { return ::close(epoll_fd); }, "Failed to close epoll handle.");
       epoll_fd = -1;
    }
 }

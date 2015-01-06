@@ -6,6 +6,7 @@ find_package(Threads REQUIRED)
 
 add_executable(unit_tests
       main.cpp
+      notification_tests.cpp
    )
 
 include_directories(/usr/src/gmock/include /usr/src/gmock/gtest/include)

@@ -9,6 +9,11 @@ add_library(polling STATIC
       event_handle.h
       event_engine.cpp
       event_engine.h
+      event_service.cpp
+      event_service.h
+      notification.cpp
+      notification.h
       signal_manager.cpp
       signal_manager.h
+      bits/exceptions.h
    )
