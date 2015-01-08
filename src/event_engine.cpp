@@ -4,9 +4,11 @@
 #include "notification.h"
 #include "signal_manager.h"
 #include <iostream>
+#include <thread>
 
 using std::make_error_code;
 using std::move;
+using std::this_thread::yield;
 
 namespace {
 
@@ -22,15 +24,8 @@ inline epolling::event_engine::duration_type time_remaining(T current_time, T st
    return (timeout == epolling::event_engine::wait_forever) ? timeout : (stop_time - current_time);
 }
 
-}
 
-
-namespace epolling {
-
-const event_engine::duration_type event_engine::wait_forever{-1};
-
-
-class event_engine::reset_for_execution {
+class reset_for_execution {
    std::atomic<bool> &exit_flag;
    std::atomic<std::ptrdiff_t> &execution_count;
    std::error_code &stop_reason;
@@ -52,15 +47,23 @@ public:
    }
 };
 
+}
 
-event_engine::event_engine() :
+
+namespace epolling {
+
+const event_engine::duration_type event_engine::wait_forever{-1};
+
+
+event_engine::event_engine(std::size_t mepp) :
+   std::experimental::execution_context(),
    stop_reason(),
-   wakeup(nullptr),
    service(nullptr),
-   max_events_per_poll(0U),
-   exit_flag(),
-   quitting(),
-   execution_count()
+   wakeup(nullptr),
+   max_events_per_poll(mepp),
+   exit_flag(false),
+   quitting(false),
+   execution_count(0)
 {
 }
 
@@ -71,7 +74,7 @@ event_engine::~event_engine() noexcept {
       if (running()) {
          do_stop(make_error_code(std::errc::operation_canceled));
          while (running()) {
-            std::this_thread::yield();
+            yield();
          }
       }
       delete wakeup;
@@ -102,27 +105,15 @@ bool event_engine::poll_one(duration_type timeout) {
 
 
 void event_engine::stop(std::error_code reason) {
-   if (!quitting) {
+   if (!quitting && running()) {
       do_stop(move(reason));
    }
 }
 
-void event_engine::start_monitoring(event_handle &handle, mode flags) {
-   service->start_monitoring(handle, flags);
-}
-
-
-void event_engine::stop_monitoring(event_handle &handle) {
-   service->stop_monitoring(handle);
-}
-
 
 void event_engine::set_signal_manager(signal_manager *manager) {
-   if (manager == nullptr) {
-      service->block_on_signals(nullptr);
-   }
-   else {
-      service->block_on_signals(&manager->signals);
+   if (!quitting) {
+      service->block_on_signals((manager == nullptr) ? nullptr : &manager->signals);
    }
 }
 

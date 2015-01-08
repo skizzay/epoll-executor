@@ -3,9 +3,9 @@
 #define EPOLLING_EVENT_ENGINE_H__
 
 #include "notification.h"
-#include <experimental/executor>
 #include <atomic>
 #include <chrono>
+#include <experimental/executor>
 #include <memory>
 
 namespace epolling {
@@ -14,9 +14,8 @@ class event_service;
 class signal_manager;
 enum class mode;
 
-class event_engine : public std::experimental::execution_context {
-   class reset_for_execution;
-   friend class reset_for_execution;
+class event_engine : public std::experimental::execution_context,
+                     public std::enable_shared_from_this<event_engine> {
    friend class event_handle;
    friend class signal_manager;
 
@@ -27,15 +26,15 @@ public:
    static const duration_type wait_forever;
 
    template<class Service>
-   static inline std::unique_ptr<event_engine> create(std::size_t max_events_per_poll) {
+   static inline auto create(std::size_t max_events_per_poll) {
       using std::experimental::use_service;
 
-      auto engine = std::unique_ptr<event_engine>(new event_engine{});
-      engine->max_events_per_poll = max_events_per_poll;
+      std::shared_ptr<event_engine> engine(new event_engine(max_events_per_poll));
       engine->service = &use_service<Service>(*engine);
       engine->wakeup = new notification(*engine, notification::behavior::conditional, 0);
-      return std::move(engine);
+      return engine;
    }
+   event_engine() = delete;
 
    virtual ~event_engine() noexcept final override;
 
@@ -53,19 +52,16 @@ public:
    }
 
 private:
-   event_engine();
-
-   void start_monitoring(event_handle &handle, mode flags);
-   void stop_monitoring(event_handle &handle);
+   event_engine(std::size_t mepp);
    void set_signal_manager(signal_manager *manager);
    bool do_poll(std::size_t max_events_to_poll, duration_type timeout);
    void do_stop(std::error_code reason);
    void do_run(duration_type timeout);
 
    std::error_code stop_reason;
-   notification *wakeup;
    event_service *service;
-   std::size_t max_events_per_poll;
+   notification *wakeup;
+   const std::size_t max_events_per_poll;
    std::atomic<bool> exit_flag;
    std::atomic<bool> quitting;
    std::atomic<std::ptrdiff_t> execution_count;

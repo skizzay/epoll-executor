@@ -66,7 +66,7 @@ struct notification_tests : public ::testing::Test {
       return result;
    }
 
-   std::unique_ptr<event_engine> engine;
+   std::shared_ptr<event_engine> engine;
    std::future<std::error_code> polling_result;
    std::error_code run_result;
 };

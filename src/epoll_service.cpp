@@ -5,7 +5,6 @@
 #include "bits/exceptions.h"
 #include <algorithm>
 #include <cstring>
-#include <iostream>
 #include <vector>
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
@@ -59,7 +58,6 @@ constexpr bool is_error(uint32_t flags) {
 }
 
 auto fire_event_callbacks = [](::epoll_event &event) {
-#if 1
    auto *handler = static_cast<epolling::event_handle*>(event.data.ptr);
 
    if (is_error(event.events)) {
@@ -73,9 +71,6 @@ auto fire_event_callbacks = [](::epoll_event &event) {
    if (is_read(event.events)) {
       handler->on_read();
    }
-#else
-   (void)event;
-#endif
 };
 
 }
@@ -97,11 +92,19 @@ epoll_service::~epoll_service() noexcept {
 }
 
 
-void epoll_service::start_monitoring(event_handle &handle, mode flags) {
-   (void)safe([&handle, flags, this] {
-         epoll_event ev = {convert_flags(flags), {&handle}};
+void epoll_service::start_monitoring(event_handle &handle) {
+   (void)safe([&handle, this] {
+         epoll_event ev = {convert_flags(handle.flags()), {&handle}};
          return ::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, handle.native_handle(), &ev);
       }, "Failed to register handle to epoll.");
+}
+
+
+void epoll_service::update_monitoring(event_handle &handle) {
+   (void)safe([&handle, this] {
+         epoll_event ev = {convert_flags(handle.flags()), {&handle}};
+         return ::epoll_ctl(epoll_fd, EPOLL_CTL_MOD, handle.native_handle(), &ev);
+      }, "Failed to modify handle with epoll.");
 }
 
 

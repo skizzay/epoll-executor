@@ -1,35 +1,40 @@
 // vim: sw=3 ts=3 expandtab cindent
 #include "event_handle.h"
 #include "event_engine.h"
+#include "event_service.h"
 #include "bits/exceptions.h"
 #include <iostream>
 #include <unistd.h>
 
+namespace epolling {
+
+using std::move;
 using std::swap;
 
 
-namespace epolling {
-
-event_handle::event_handle(event_engine &e, native_handle_type h, mode flags) :
-   event_loop(e),
-   handle(safe([handle=h] { return handle; }, "Cannot register invalid handle."))
+event_handle::event_handle(native_handle_type h) :
+   handle(h),
+   mode_flags(mode::none)
 {
-   e.start_monitoring(*this, flags);
 }
 
 
 event_handle::event_handle(event_handle &&other) :
-   event_loop(other.engine()),
-   handle(-1)
+   handle(other.handle),
+   mode_flags(other.mode_flags),
+   read_trigger(move(other.read_trigger)),
+   write_trigger(move(other.write_trigger)),
+   error_trigger(move(other.error_trigger)),
+   event_loop(move(other.event_loop))
 {
-   swap(handle, other.handle);
+   other.handle = -1;
 }
 
 
 event_handle& event_handle::operator =(event_handle &&other) {
    if (this != &other) {
-      close();
-      swap(handle, other.handle);
+      event_handle temp{move(other)};
+      swap(temp);
    }
    return *this;
 }
@@ -42,6 +47,15 @@ event_handle::~event_handle() noexcept {
    catch (const std::exception &e) {
       std::cerr << e.what() << std::endl;
       std::terminate();
+   }
+}
+
+
+void event_handle::add_to(event_engine &e) {
+   if (opened() && (engine() != e.shared_from_this())) {
+      stop_monitoring();
+      event_loop = e.shared_from_this();
+      e.service->start_monitoring(*this);
    }
 }
 
@@ -59,7 +73,7 @@ int event_handle::write(const void *data, std::size_t num_bytes) {
 
 
 void event_handle::close() {
-   if (0 < native_handle()) {
+   if (opened()) {
       stop_monitoring();
       (void)safe([this] { return ::close(native_handle()); }, "Failed to close handle.");
       handle = -1;
@@ -68,7 +82,18 @@ void event_handle::close() {
 
 
 void event_handle::stop_monitoring() {
-   engine().stop_monitoring(*this);
+   auto e = engine();
+   if (e != nullptr) {
+      e->service->stop_monitoring(*this);
+   }
+}
+
+
+void event_handle::update_monitoring() {
+   auto e = engine();
+   if (e != nullptr) {
+      e->service->update_monitoring(*this);
+   }
 }
 
 }

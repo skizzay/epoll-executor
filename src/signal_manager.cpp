@@ -1,6 +1,7 @@
 // vim: sw=3 ts=3 expandtab cindent
 #include "signal_manager.h"
 #include "event_engine.h"
+#include "event_service.h"
 #include "bits/exceptions.h"
 #include <sys/signalfd.h>
 
@@ -24,23 +25,17 @@ namespace epolling {
 
 signal_manager::signal_manager(event_engine &e) :
    signals(create_signal_set()),
-   handle(e, create_native_handle(-1, signals), mode::urgent_read),
+   handle(create_native_handle(-1, signals)),
    handlers()
 {
-   handle.on_read([=] {
-         ::signalfd_siginfo signal_info;
-         (void)handle.read(&signal_info, sizeof(signal_info));
-         auto &handler = handlers[signal_info.ssi_signo];
-         if (handler != nullptr) {
-            handler->handle(signal_info);
-         }
-      });
-   e.set_signal_manager(this);
+   set_read_callback();
+   handle.add_to(e);
+   register_with_engine(&signals);
 }
 
 
 signal_manager::~signal_manager() {
-   handle.engine().set_signal_manager(nullptr);
+   register_with_engine(nullptr);
 }
 
 
@@ -58,7 +53,29 @@ void signal_manager::update_signal_handle() {
                           "Failed to create signal handle.");
 
    if (new_handle != handle.native_handle()) {
-      handle = event_handle{handle.engine(), new_handle, mode::urgent_read};
+      event_handle{new_handle}.swap(handle);
+      set_read_callback();
+      register_with_engine(&signals);
+   }
+}
+
+
+void signal_manager::set_read_callback() {
+   handle.on_read([=] {
+         ::signalfd_siginfo signal_info;
+         (void)handle.read(&signal_info, sizeof(signal_info));
+         auto &handler = handlers[signal_info.ssi_signo];
+         if (handler != nullptr) {
+            handler->handle(signal_info);
+         }
+      }, true);
+}
+
+
+void signal_manager::register_with_engine(const ::sigset_t *s) {
+   auto engine = handle.engine();
+   if (engine != nullptr) {
+      engine->service->block_on_signals(s);
    }
 }
 

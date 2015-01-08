@@ -6,6 +6,7 @@ find_package(Threads REQUIRED)
 
 add_executable(unit_tests
       main.cpp
+      event_engine_tests.cpp
       notification_tests.cpp
    )
 

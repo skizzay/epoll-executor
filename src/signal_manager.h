@@ -37,11 +37,13 @@ private:
 
    void monitor_signal(native_handle_type signum);
    void update_signal_handle();
+   void set_read_callback();
+   void register_with_engine(const ::sigset_t *s);
 };
 
 
 template<class OnSignal>
-inline void signal_manager::on_signal(native_handle_type signum, OnSignal &&callback) {
+inline void signal_manager::on_signal(int signum, OnSignal &&callback) {
    using std::forward;
 
    class impl final : public signal_handler {
@@ -59,7 +61,7 @@ inline void signal_manager::on_signal(native_handle_type signum, OnSignal &&call
       }
    };
 
-   if ((0 < signum) && (signum < handlers.size())) {
+   if ((0 < signum) && (static_cast<std::size_t>(signum) < handlers.size())) {
       monitor_signal(signum);
       handlers[signum] = std::make_unique<impl>(std::forward<OnSignal>(callback));
    }
