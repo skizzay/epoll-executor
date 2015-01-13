@@ -8,6 +8,7 @@ add_executable(unit_tests
       main.cpp
       event_engine_tests.cpp
       notification_tests.cpp
+      safe_tests.cpp
    )
 
 include_directories(/usr/src/gmock/include /usr/src/gmock/gtest/include)

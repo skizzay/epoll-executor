@@ -24,7 +24,7 @@ globally_enable_extra_compiler_warnings()
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-   message(STATUS "CMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}")
+   set(CMAKE_C_FLAGS_DEBUG ${CMAKE_C_FLAGS_COVERAGE})
    set(CMAKE_CXX_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_COVERAGE})
 endif()
 add_compile_options(-std=c++1y)

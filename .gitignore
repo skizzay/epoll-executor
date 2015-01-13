@@ -34,3 +34,5 @@ build
 *.sw?
 *~
 .ycm_extra_conf.py*
+.kdev4
+*.kdev4
