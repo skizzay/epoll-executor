@@ -3,8 +3,11 @@
 #define EPOLLING_NOTIFICATION_H__
 
 #include "event_handle.h"
+#include <cstdint>
 
 namespace epolling {
+
+class event_engine;
 
 class notification final {
 public:
@@ -26,8 +29,8 @@ public:
    }
 
 private:
-   event_handle handle;
    uint64_t last_read_value;
+   event_handle handle;
 };
 
 }

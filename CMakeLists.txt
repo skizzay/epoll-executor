@@ -1,12 +1,6 @@
 cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
-add_compile_options(-g)
-add_compile_options(-O0)
-add_compile_options(-std=c++1y)
-add_compile_options(-Wall)
-add_compile_options(-Wextra)
-add_compile_options(-Werror)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake-modules)
 
 #option(GCC_LINK_TIME_OPTIMIZATION "Enable GCC Link Time Optimization (LTO)" ON)
 #if (GCC_LINK_TIME_OPTIMIZATION)
@@ -22,6 +16,19 @@ add_compile_options(-Werror)
 #endif()
 
 project(epoll-executor)
+
+include(CodeCoverage)
+include(EnableExtraCompilerWarnings)
+globally_enable_extra_compiler_warnings()
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
+
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+   message(STATUS "CMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}")
+   set(CMAKE_CXX_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_COVERAGE})
+endif()
+add_compile_options(-std=c++1y)
+add_compile_options(-Werror)
 
 include_directories(${CMAKE_SOURCE_DIR}/src /home/andrew/third-party/executors/include)
 

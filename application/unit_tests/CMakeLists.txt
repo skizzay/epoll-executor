@@ -12,3 +12,8 @@ add_executable(unit_tests
 
 include_directories(/usr/src/gmock/include /usr/src/gmock/gtest/include)
 target_link_libraries(unit_tests polling ${CMAKE_THREAD_LIBS_INIT} $ENV{HOME}/third-party/gmock/libgmock.a $ENV{HOME}/third-party/gmock/gtest/libgtest.a)
+
+SETUP_TARGET_FOR_COVERAGE(cover_unit_tests
+                          ${PROJECT_BINARY_DIR}/unit_tests
+                          ${PROJECT_BINARY_DIR}/cover_unit_tests
+                         )

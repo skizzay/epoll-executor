@@ -13,8 +13,8 @@ public:
    explicit epoll_service(std::experimental::execution_context &e);
    virtual ~epoll_service() noexcept final override;
 
-   virtual void start_monitoring(event_handle &handle) final override;
-   virtual void update_monitoring(event_handle &handle) final override;
+   virtual void start_monitoring(event_handle &handle, mode flags) final override;
+   virtual void update_monitoring(event_handle &handle, mode flags) final override;
    virtual void stop_monitoring(event_handle &handle) final override;
    virtual void block_on_signals(const ::sigset_t *signals) final override;
    virtual std::pair<std::error_code, bool> poll(std::size_t max_events, std::chrono::nanoseconds timeout) final override;

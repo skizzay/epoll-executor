@@ -1,5 +1,6 @@
 // vim: sw=3 ts=3 expandtab cindent
 #include "notification.h"
+#include "event_engine.h"
 #include "bits/exceptions.h"
 #include <limits>
 #include <unistd.h>
@@ -17,16 +18,16 @@ inline auto create_native_handle(epolling::notification::behavior behavior, uint
 namespace epolling {
 
 notification::notification(event_engine &e, behavior how_to_behave, uint64_t initial_value) :
-   handle(safe([=] { return create_native_handle(how_to_behave, initial_value); }, "Failed to create eventfd.")),
-   last_read_value(std::numeric_limits<uint64_t>::max())
+   last_read_value(std::numeric_limits<uint64_t>::max()),
+   handle([=] (auto) { handle.read(&last_read_value, sizeof(last_read_value)); })
 {
-   handle.on_read([=] { handle.read(&last_read_value, sizeof(last_read_value)); }, true);
-   handle.add_to(e);
+   handle.open(create_native_handle(how_to_behave, initial_value), "Failed to create eventfd");
+   e.start_monitoring(handle, mode::urgent_read);
 }
 
 
 void notification::set(uint64_t value) {
-   (void)handle.write(&value, sizeof(value));
+   (void)handle.write(&value, sizeof(value), "Failed to set event notification");
 }
 
 }

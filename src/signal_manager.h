@@ -10,8 +10,9 @@
 
 struct signalfd_siginfo;
 
-
 namespace epolling {
+
+class event_engine;
 
 class signal_manager final {
    friend class event_engine;
@@ -31,20 +32,22 @@ public:
 
 private:
    ::sigset_t signals;
-   event_handle handle;
+   std::weak_ptr<event_engine> engine;
    // Most likely around 1024 handlers.
    std::array<std::unique_ptr<signal_handler>, sizeof(::sigset_t) * CHAR_BIT> handlers;
+   event_handle handle;
 
    void monitor_signal(native_handle_type signum);
-   void update_signal_handle();
-   void set_read_callback();
-   void register_with_engine(const ::sigset_t *s);
+   void register_with_engine(const signal_manager *self);
+   void on_signal_triggered();
 };
 
 
 template<class OnSignal>
 inline void signal_manager::on_signal(int signum, OnSignal &&callback) {
    using std::forward;
+   using std::make_error_code;
+   using std::make_unique;
 
    class impl final : public signal_handler {
       OnSignal on_signal;
@@ -63,7 +66,7 @@ inline void signal_manager::on_signal(int signum, OnSignal &&callback) {
 
    if ((0 < signum) && (static_cast<std::size_t>(signum) < handlers.size())) {
       monitor_signal(signum);
-      handlers[signum] = std::make_unique<impl>(std::forward<OnSignal>(callback));
+      handlers[signum] = make_unique<impl>(forward<OnSignal>(callback));
    }
    else {
       throw std::system_error(make_error_code(std::errc::invalid_argument),
