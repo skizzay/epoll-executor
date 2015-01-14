@@ -7,6 +7,7 @@ find_package(Threads REQUIRED)
 add_executable(unit_tests
       main.cpp
       event_engine_tests.cpp
+      event_handle_tests.cpp
       notification_tests.cpp
       safe_tests.cpp
    )

@@ -3,13 +3,42 @@
 #include "event_service.h"
 #include "bits/exceptions.h"
 #include <iostream>
+#include <fcntl.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+
+using std::cerr;
+using std::error_code;
+using std::exception;
+using std::endl;
+using std::make_tuple;
+using std::move;
+using std::size_t;
+using std::experimental::string_view;
+using std::swap;
+using std::terminate;
+using std::tuple;
+
+namespace {
+
+using namespace epolling;
+
+inline int get_flags(native_handle_type handle, error_code &ec) {
+   return safe([handle] { return ::fcntl(handle, F_GETFL); }, ec);
+}
+
+inline void set_flags(native_handle_type handle, int flags, error_code &ec) {
+   (void)safe([handle, flags] { return ::fcntl(handle, F_SETFL, flags); }, ec);
+}
+
+inline bool is_blocking_flag_set(int flags) {
+   return 0 == (flags & O_NONBLOCK);
+}
+
+}
+
 
 namespace epolling {
-
-using std::move;
-using std::swap;
-
 
 event_handle::event_handle(event_handle &&other) :
    handle(other.handle),
@@ -31,68 +60,83 @@ event_handle::~event_handle() noexcept {
    try {
       close();
    }
-   catch (const std::exception &e) {
-      std::cerr << e.what() << std::endl;
-      std::terminate();
+   catch (const exception &e) {
+      cerr << e.what() << endl;
+      terminate();
    }
 }
 
 
-int event_handle::read(void *data, std::size_t num_bytes, std::experimental::string_view what) {
-   return safe([=] { return ::read(native_handle(), data, num_bytes); }, what);
+tuple<size_t, error_code> event_handle::bytes_available() const noexcept {
+   size_t num_bytes = 0;
+   error_code error;
+   (void)safe([this, &num_bytes] { return ::ioctl(native_handle(), FIONREAD, &num_bytes); }, error);
+   return make_tuple(num_bytes, error);
 }
 
 
-int event_handle::read(void *data, std::size_t num_bytes, std::error_code &ec) noexcept {
-   return safe([=] { return ::read(native_handle(), data, num_bytes); }, ec);
+error_code event_handle::make_blocking() noexcept {
+   error_code error;
+   int flags = get_flags(native_handle(), error);
+   if (!error && !is_blocking_flag_set(flags)) {
+      set_flags(native_handle(), flags & (~O_NONBLOCK), error);
+   }
+   return error;
 }
 
 
-int event_handle::write(const void *data, std::size_t num_bytes, std::experimental::string_view what) {
-   return safe([=] { return ::write(native_handle(), data, num_bytes); }, what);
+error_code event_handle::make_non_blocking() noexcept {
+   error_code error;
+   int flags = get_flags(native_handle(), error);
+   if (!error && is_blocking_flag_set(flags)) {
+      set_flags(native_handle(), flags | O_NONBLOCK, error);
+   }
+   return error;
 }
 
 
-int event_handle::write(const void *data, std::size_t num_bytes, std::error_code &ec) noexcept {
-   return safe([=] { return ::write(native_handle(), data, num_bytes); }, ec);
+tuple<bool, error_code> event_handle::is_blocking() const noexcept {
+   error_code error;
+   bool result = is_blocking_flag_set(get_flags(native_handle(), error));
+   return make_tuple(result, error);
 }
 
 
-void event_handle::open(native_handle_type new_handle, std::experimental::string_view what) {
+tuple<int, error_code> event_handle::read(void *data, size_t num_bytes) noexcept {
+   error_code error;
+   int result = safe([=] { return ::read(native_handle(), data, num_bytes); }, error);
+   return make_tuple(result, error);
+}
+
+
+tuple<int, error_code> event_handle::write(const void *data, size_t num_bytes) noexcept {
+   error_code error;
+   int result = safe([=] { return ::write(native_handle(), data, num_bytes); }, error);
+   return make_tuple(result, error);
+}
+
+
+error_code event_handle::open(native_handle_type new_handle) noexcept {
+   error_code error;
    if (opened()) {
-      close("Failed to close handle during open");
+      error = close();
    }
-   handle = safe([new_handle] { return new_handle; }, what);
+
+   if (!error) {
+      handle = safe([new_handle] { return new_handle; }, error);
+   }
+
+   return error;
 }
 
 
-void event_handle::open(native_handle_type new_handle, std::error_code &ec) {
+error_code event_handle::close() noexcept {
+   error_code error;
    if (opened()) {
-      close(ec);
-   }
-   else {
-      ec.clear();
-   }
-
-   if (!ec) {
-      handle = safe([new_handle] { return new_handle; }, ec);
-   }
-}
-
-
-void event_handle::close(std::experimental::string_view what) {
-   if (opened()) {
-      (void)safe([this] { return ::close(native_handle()); }, what);
+      (void)safe([this] { return ::close(native_handle()); }, error);
       handle = -1;
    }
-}
-
-
-void event_handle::close(std::error_code &ec) noexcept {
-   if (opened()) {
-      (void)safe([this] { return ::close(native_handle()); }, ec);
-      handle = -1;
-   }
+   return error;
 }
 
 }

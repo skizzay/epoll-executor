@@ -7,6 +7,7 @@
 #include <climits>
 #include <csignal>
 #include <memory>
+#include <system_error>
 
 struct signalfd_siginfo;
 
@@ -24,10 +25,10 @@ class signal_manager final {
 
 public:
    explicit signal_manager(event_engine &e);
-   ~signal_manager();
+   ~signal_manager() noexcept;
 
    template<class OnSignal>
-   inline void on_signal(int signum, OnSignal &&callback);
+   inline std::error_code on_signal(int signum, OnSignal &&callback);
    void stop_monitoring_signal(int signum);
 
 private:
@@ -37,14 +38,16 @@ private:
    std::array<std::unique_ptr<signal_handler>, sizeof(::sigset_t) * CHAR_BIT> handlers;
    event_handle handle;
 
-   void monitor_signal(native_handle_type signum);
-   void register_with_engine(const signal_manager *self);
+   std::error_code monitor_signal(native_handle_type signum) noexcept;
+   std::error_code register_with_engine(const signal_manager *self) noexcept;
    void on_signal_triggered();
 };
 
 
 template<class OnSignal>
-inline void signal_manager::on_signal(int signum, OnSignal &&callback) {
+inline std::error_code signal_manager::on_signal(int signum, OnSignal &&callback) {
+   using std::errc;
+   using std::error_code;
    using std::forward;
    using std::make_error_code;
    using std::make_unique;
@@ -64,14 +67,24 @@ inline void signal_manager::on_signal(int signum, OnSignal &&callback) {
       }
    };
 
+   error_code error;
+
    if ((0 < signum) && (static_cast<std::size_t>(signum) < handlers.size())) {
-      monitor_signal(signum);
-      handlers[signum] = make_unique<impl>(forward<OnSignal>(callback));
+      error = monitor_signal(signum);
+      if (!error) {
+         try {
+            handlers[signum] = make_unique<impl>(forward<OnSignal>(callback));
+         }
+         catch (const std::bad_alloc &) {
+            error = make_error_code(errc::not_enough_memory);
+         }
+      }
    }
    else {
-      throw std::system_error(make_error_code(std::errc::invalid_argument),
-                              "Callback cannot be used for invalid signal number.");
+      error = make_error_code(errc::invalid_argument);
    }
+
+   return error;
 }
 
 }

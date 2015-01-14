@@ -6,6 +6,7 @@
 #include <memory>
 #include <experimental/string_view>
 #include <system_error>
+#include <tuple>
 #include <utility>
 
 namespace epolling {
@@ -42,9 +43,14 @@ public:
          }
       };
 
+      // Can throw std::bad_alloc.
       trigger = make_unique<basic_event_trigger>(forward<Callback>(callback));
    }
-   event_handle() = delete;
+   inline event_handle() noexcept :
+      handle(-1),
+      trigger()
+   {
+   }
    event_handle(const event_handle &) = delete;
    event_handle(event_handle &&);
    ~event_handle() noexcept;
@@ -52,34 +58,42 @@ public:
    event_handle& operator =(const event_handle &) = delete;
    event_handle& operator =(event_handle &&);
 
-   inline native_handle_type native_handle() const {
+   inline native_handle_type native_handle() const noexcept {
       return handle;
    }
 
-   inline bool opened() const {
+   inline bool opened() const noexcept {
       return !closed();
    }
-   inline bool closed() const {
+   inline bool closed() const noexcept {
       return 0 > native_handle();
    }
 
-   int read(void *data, std::size_t num_bytes, std::experimental::string_view what="Failed to read from handle");
-   int read(void *data, std::size_t num_bytes, std::error_code &ec) noexcept;
+   std::tuple<std::size_t, std::error_code> bytes_available() const noexcept;
 
-   int write(const void *data, std::size_t num_bytes, std::experimental::string_view what="Failed to write to handle");
-   int write(const void *data, std::size_t num_bytes, std::error_code &ec) noexcept;
+   std::error_code make_non_blocking() noexcept;
+   std::error_code make_blocking() noexcept;
+   std::tuple<bool, std::error_code> is_blocking() const noexcept;
 
-   void open(native_handle_type handle, std::experimental::string_view what="Failed to open handle");
-   void open(native_handle_type handle, std::error_code &ec);
+   std::tuple<int, std::error_code> read(void *data, std::size_t num_bytes) noexcept;
 
-   void close(std::experimental::string_view what="Failed to close handle");
-   void close(std::error_code &ec) noexcept;
+   std::tuple<int, std::error_code> write(const void *data, std::size_t num_bytes) noexcept;
+
+   std::error_code open(native_handle_type handle) noexcept;
+
+   std::error_code close() noexcept;
 
    inline void on_trigger(mode trigger_flags) {
-      trigger->execute(trigger_flags);
+      if (trigger != nullptr) {
+         trigger->execute(trigger_flags);
+      }
    }
 
-   inline void swap(event_handle &other) {
+   // NOTE: If you are receiving asynchronous callbacks, then those callbacks will still occur
+   //       on the handle that passed into event_engine::start_monitoring.  You must stop
+   //       monitoring first, swap, then restart the monitoring.  Synchronous invocations
+   //       won't cause any issues.
+   inline void swap(event_handle &other) noexcept {
       using std::swap;
 
       swap(handle, other.handle);
@@ -90,6 +104,11 @@ private:
    native_handle_type handle;
    std::unique_ptr<event_trigger> trigger;
 };
+
+
+inline void swap(event_handle &l, event_handle &r) {
+   l.swap(r);
+}
 
 
 inline bool operator< (const event_handle &l , const event_handle &r) {
