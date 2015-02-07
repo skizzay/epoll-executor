@@ -1,3 +1,4 @@
+# vim: sw=3 ts=3 expandtab smartindent
 cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake-modules)
@@ -29,6 +30,14 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 add_compile_options(-std=c++1y)
 add_compile_options(-Werror)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+   add_definitions(-DEPOLLING_IS_LINUX=0 -DEPOLLING_IS_WINDOWS=1 -DEPOLLING_IS_FREEBSD=0)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+   add_definitions(-DEPOLLING_IS_LINUX=1 -DEPOLLING_IS_WINDOWS=0 -DEPOLLING_IS_FREEBSD=0)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+   add_definitions(-DEPOLLING_IS_LINUX=0 -DEPOLLING_IS_WINDOWS=0 -DEPOLLING_IS_FREEBSD=1)
+endif()
 
 include_directories(${CMAKE_SOURCE_DIR}/src /home/andrew/third-party/executors/include)
 

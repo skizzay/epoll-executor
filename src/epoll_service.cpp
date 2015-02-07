@@ -1,5 +1,7 @@
 // vim: sw=3 ts=3 expandtab cindent
 #include "epoll_service.h"
+#if 0
+#include "event_activation.h"
 #include "event_engine.h"
 #include "event_handle.h"
 #include "bits/exceptions.h"
@@ -10,6 +12,7 @@
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
 #include <unistd.h>
+#include <iostream>
 
 using std::begin;
 using std::end;
@@ -19,7 +22,7 @@ using std::make_pair;
 
 namespace {
 
-inline uint32_t set_flag(epolling::mode in_flag, epolling::mode flags, uint32_t out_flag) noexcept {
+constexpr inline uint32_t set_flag(epolling::mode in_flag, epolling::mode flags, uint32_t out_flag) noexcept {
    return ((in_flag & flags) != epolling::mode::none) ? out_flag : 0U;
 }
 
@@ -71,10 +74,11 @@ constexpr bool is_error(uint32_t flags) {
    return (flags & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) > 0U;
 }
 
+
 auto fire_event_callbacks = [](::epoll_event &event) {
-   auto *handler = static_cast<epolling::event_handle*>(event.data.ptr);
-   assert(handler != nullptr);
-   handler->on_trigger(convert_flags(event.events));
+   auto *activation = static_cast<epolling::event_activation*>(event.data.ptr);
+   assert(activation != nullptr);
+   activation->callback(convert_flags(event.events), activation->object);
 };
 
 }
@@ -84,11 +88,9 @@ namespace epolling {
 
 epoll_service::epoll_service(std::experimental::execution_context &e) :
    event_service(e),
-   epoll_fd(-1),
-   signals(nullptr)
+   signals(nullptr),
+   epoll_fd(::epoll_create1(EPOLL_CLOEXEC))
 {
-   epoll_fd = safe([]{ return ::epoll_create1(EPOLL_CLOEXEC); },
-                   "Failed to create epoll file descriptor.");
 }
 
 
@@ -96,30 +98,35 @@ epoll_service::~epoll_service() noexcept {
 }
 
 
-void epoll_service::start_monitoring(event_handle &handle, mode flags) {
-   (void)safe([&handle, flags, this] {
-         epoll_event ev = {convert_flags(flags), {&handle}};
-         return ::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, handle.native_handle(), &ev);
+void epoll_service::start_monitoring(int fd, mode flags, void (*callback)(mode, void *), void *object) {
+   (void)safe([=] {
+         event_activation &activation = activations.get(fd, callback, object);
+         epoll_event ev = {convert_flags(flags), {&activation}};
+         return ::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev);
       }, "Failed to register handle to epoll.");
 }
 
 
-void epoll_service::update_monitoring(event_handle &handle, mode flags) {
-   (void)safe([&handle, flags, this] {
-         epoll_event ev = {convert_flags(flags), {&handle}};
-         return ::epoll_ctl(epoll_fd, EPOLL_CTL_MOD, handle.native_handle(), &ev);
+void epoll_service::update_monitoring(int fd, mode flags) {
+   (void)safe([=] {
+         event_activation &activation = activations.get(fd);
+         epoll_event ev = {convert_flags(flags), {&activation}};
+         return ::epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
       }, "Failed to modify handle with epoll.");
 }
 
 
-void epoll_service::stop_monitoring(event_handle &handle) {
-   (void)safe([&handle, this] { return ::epoll_ctl(epoll_fd, EPOLL_CTL_DEL, handle.native_handle(), nullptr); },
-              "Failed to unregister handle with epoll.");
+void epoll_service::stop_monitoring(int fd) {
+   (void)safe([=] {
+         activations.deactivate(fd);
+         return ::epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
+      }, "Failed to unregister handle with epoll.");
 }
 
 
 void epoll_service::block_on_signals(const ::sigset_t *signal_set) {
    details_::errno_context c;
+std::cout << "signals=" << signals << ", signal_set=" << signal_set << std::endl;
    if ((signals != nullptr) && (signals != signal_set) && (signal_set != nullptr)) {
       errno = EEXIST;
       throw std::system_error(c.create_error_code(), "Cannot register more than one signal manager with epoll.");
@@ -149,8 +156,9 @@ std::pair<std::error_code, bool> epoll_service::poll(std::size_t max_events, std
 void epoll_service::shutdown_service() {
    if (0 < epoll_fd) {
       (void)safe([=] { return ::close(epoll_fd); }, "Failed to close epoll handle.");
-      epoll_fd = -1;
+      epoll_fd = handle<tag, int, -1>{};
    }
 }
 
 }
+#endif

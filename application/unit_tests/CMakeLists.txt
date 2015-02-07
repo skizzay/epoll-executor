@@ -7,9 +7,13 @@ find_package(Threads REQUIRED)
 add_executable(unit_tests
       main.cpp
       event_engine_tests.cpp
-      event_handle_tests.cpp
+      fake_service.cpp
+      fake_service.h
       notification_tests.cpp
+      print_to.cpp
+      print_to.h
       safe_tests.cpp
+      #signal_manager_tests.cpp
    )
 
 include_directories(/usr/src/gmock/include /usr/src/gmock/gtest/include)

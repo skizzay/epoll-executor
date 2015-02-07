@@ -9,36 +9,33 @@
 using std::get;
 using std::system_error;
 
-namespace {
-
-inline auto create_native_handle(epolling::notification::behavior behavior, uint64_t initial_value) {
-   return ::eventfd(static_cast<int>(initial_value),
-                    EFD_CLOEXEC | EFD_NONBLOCK | (behavior == epolling::notification::behavior::semaphore ? EFD_SEMAPHORE : 0));
-}
-
-}
-
 namespace epolling {
 
-notification::notification(event_engine &e, behavior how_to_behave, uint64_t initial_value) :
-   last_read_value(std::numeric_limits<uint64_t>::max()),
-   handle([=] (auto) { handle.read(&last_read_value, sizeof(last_read_value)); })
-{
-   auto error = handle.open(create_native_handle(how_to_behave, initial_value));
-   if (error) {
-      throw system_error(error, "Failed to create event file descriptor");
-   }
-   else {
-      e.start_monitoring(handle, mode::urgent_read);
-   }
-}
-
-
 void notification::set(uint64_t value) {
+#if 0
    auto error = std::get<std::error_code>(handle.write(&value, sizeof(value)));
    if (error) {
       throw system_error(error, "Failed to write notification to file descriptor");
    }
+#else
+   ::write(event_fd.get_handle(), &value, sizeof(value));
+#endif
+}
+
+
+native_handle_type notification::create_native_handle(behavior b, uint64_t initial_value) {
+#if EPOLLING_IS_LINUX
+   return safe([=] {
+         return ::eventfd(static_cast<int>(initial_value),
+                          EFD_CLOEXEC | EFD_NONBLOCK | (b == behavior::semaphore ? EFD_SEMAPHORE : 0));
+      }, "Failed to create event file descriptor.");
+#endif
+}
+
+
+void notification::on_activation(mode activation_flags) {
+   (void) activation_flags;
+   ::read(event_fd.get_handle(), &last_read_value, sizeof(last_read_value));
 }
 
 }

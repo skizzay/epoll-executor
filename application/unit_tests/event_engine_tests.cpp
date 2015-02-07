@@ -1,21 +1,13 @@
 // vim: sw=3 ts=3 expandtab cindent
 #include "event_engine.h"
+#include "fake_service.h"
 #include "epoll_service.h"
+#include "print_to.h"
 #include <gmock/gmock.h>
 #include <chrono>
 #include <future>
 #include <memory>
 #include <system_error>
-
-
-namespace epolling {
-
-inline void PrintTo(const event_handle &handle, std::ostream *os) {
-   *os << "event_handle(" << handle.native_handle() << ')';
-}
-
-}
-
 
 namespace {
 
@@ -27,6 +19,7 @@ using ::testing::AtLeast;
 using ::testing::Invoke;
 using ::testing::InvokeWithoutArgs;
 using ::testing::Mock;
+using ::testing::NotNull;
 using ::testing::Ref;
 using ::testing::Return;
 using std::async;
@@ -36,58 +29,34 @@ using std::rand;
 using std::this_thread::yield;
 
 
-class fake_service : public event_service {
-public:
-   static fake_service *singleton;
+struct testing_tag {};
 
-   explicit inline fake_service(std::experimental::execution_context &ec) :
-      event_service(ec)
-   {
-      assert(singleton == nullptr);
-      singleton = this;
-      EXPECT_CALL(*this, start_monitoring(An<event_handle&>(), mode::urgent_read))
-         .Times(1);
-      EXPECT_CALL(*this, shutdown_service())
-         .WillOnce(Invoke(fake_service::reset_singleton));
-   }
-
-   MOCK_METHOD2(start_monitoring, void(event_handle &, mode));
-   MOCK_METHOD2(update_monitoring, void(event_handle &, mode));
-   MOCK_METHOD1(stop_monitoring, void(event_handle &));
-   MOCK_METHOD1(block_on_signals, void(const ::sigset_t *));
-   MOCK_METHOD2(poll, std::pair<std::error_code, bool>(std::size_t, std::chrono::nanoseconds));
-   MOCK_METHOD0(shutdown_service, void());
-
-private:
-   static inline void reset_singleton() {
-      singleton = nullptr;
-   }
-};
-
-fake_service *fake_service::singleton{nullptr};
+typedef handle<testing_tag, native_handle_type, -1> testing_handle_type;
 
 
 // This isn't a valid service because there isn't a constructor that takes an execution context.
-struct not_a_valid_service : event_service {
-   virtual void start_monitoring(event_handle &handle, mode m) final override {
-      (void)handle;
+struct not_a_valid_service final : std::experimental::execution_context::service {
+   template<class T, void (T::*OnActivation)(mode), class U>
+   void start_monitoring(native_handle_type h, mode f, U &u) {
+      (void)h;
+      (void)f;
+      (void)u;
+   }
+
+   void update_monitoring(native_handle_type h, mode m) {
+      (void)h;
       (void)m;
    }
 
-   virtual void update_monitoring(event_handle &handle, mode m) final override {
-      (void)handle;
-      (void)m;
-   }
-
-   virtual void stop_monitoring(event_handle &handle) final override {
+   void stop_monitoring(event_handle &handle) {
       (void)handle;
    }
 
-   virtual void block_on_signals(const ::sigset_t *signals) final override {
+   void block_on_signals(const ::sigset_t *signals) {
       (void)signals;
    }
 
-   virtual std::pair<std::error_code, bool> poll(std::size_t max_events, std::chrono::nanoseconds timeout) final override {
+   std::pair<std::error_code, bool> poll(std::size_t max_events, std::chrono::nanoseconds timeout) {
       (void)max_events;
       (void)timeout;
       return make_pair(std::error_code{}, bool{});
@@ -101,16 +70,25 @@ struct not_a_valid_service : event_service {
 struct event_engine_tests : ::testing::Test {
    event_engine_tests() :
       ::testing::Test(),
-      max_events_per_poll(50)
+      max_events_per_poll(50),
+      activated(false),
+      activation_flags()
    {
    }
 
    template<class Service>
    inline auto create_target() {
-      return event_engine::create<Service>(max_events_per_poll);
+      return std::make_shared<event_engine<Service>>(max_events_per_poll);
+   }
+
+   void on_activation(mode flags) {
+      activated = true;
+      activation_flags = flags;
    }
 
    std::size_t max_events_per_poll;
+   bool activated;
+   mode activation_flags;
 };
 
 
@@ -134,6 +112,7 @@ TEST_F(event_engine_tests, create_with_invalid_type_should_throw_bad_cast) {
 TEST_F(event_engine_tests, destructor_when_invoked_should_call_system_shutdown_on_service) {
    // Arrange, Act
    {
+      // there's already an expectation registered for the shutdown
       (void)create_target<fake_service>();
    }
 
@@ -301,6 +280,7 @@ TEST_F(event_engine_tests, run_given_0ns_timeout_should_return_timed_out_reason_
 }
 
 
+#if 1
 TEST_F(event_engine_tests, run_after_engine_has_been_destructed_should_return_operation_canceled_reason_for_stopping) {
    // Arrange
    std::error_code expected = make_error_code(std::errc::operation_canceled);
@@ -314,14 +294,13 @@ TEST_F(event_engine_tests, run_after_engine_has_been_destructed_should_return_op
       while (!target->running()) {
          yield();
       }
-      yield();
-      yield();
    }
    actual = future_code.get();
 
    // Assert
    ASSERT_EQ(expected, actual);
 }
+#endif
 
 
 TEST_F(event_engine_tests, running_after_calling_run_should_return_true) {
@@ -370,14 +349,13 @@ TEST_F(event_engine_tests, running_after_stopping_should_return_false) {
 TEST_F(event_engine_tests, start_monitoring_given_valid_handle_and_flags_should_register_handle_with_service) {
    // Arrange
    mode expected_mode = mode::read;
-   event_handle handle([] (auto) {});
    auto target = create_target<fake_service>();
-   handle.open(::dup(0));
-   EXPECT_CALL(*fake_service::singleton, start_monitoring(Ref(handle), expected_mode))
+   handle<testing_tag, int, -1> fd{::dup(0)};
+   EXPECT_CALL(*fake_service::singleton, start_monitoring(static_cast<int>(fd), expected_mode, NotNull()))
       .Times(1);
 
    // Act
-   target->start_monitoring(handle, expected_mode);
+   target->template start_monitoring<event_engine_tests, &event_engine_tests::on_activation>(fd, expected_mode, *this);
 
    // Assert
    // On mock expiration
@@ -387,33 +365,31 @@ TEST_F(event_engine_tests, start_monitoring_given_valid_handle_and_flags_should_
 TEST_F(event_engine_tests, update_monitoring_given_valid_handle_and_flags_should_update_handle_with_service) {
    // Arrange
    mode expected_mode = mode::read;
-   event_handle handle([] (auto) {});
+   handle<testing_tag, int, -1> fd{::dup(0)};
    auto target = create_target<fake_service>();
-   handle.open(::dup(0));
-   EXPECT_CALL(*fake_service::singleton, update_monitoring(Ref(handle), expected_mode))
+   EXPECT_CALL(*fake_service::singleton, update_monitoring(static_cast<int>(fd), expected_mode))
       .Times(1);
 
    // Act
-   target->update_monitoring(handle, expected_mode);
+   target->update_monitoring(fd, expected_mode);
 
    // Assert
    // On mock expiration
 }
 
 
-TEST_F(event_engine_tests, stop_monitoring_given_valid_handle_and_flags_should_register_handle_with_service) {
+TEST_F(event_engine_tests, stop_monitoring_given_valid_handle_and_flags_should_register_handle_with_service_and_reset_handle) {
    // Arrange
-   event_handle handle([] (auto) {});
+   handle<testing_tag, int, -1> fd{::dup(0)};
    auto target = create_target<fake_service>();
-   handle.open(::dup(0));
-   EXPECT_CALL(*fake_service::singleton, stop_monitoring(Ref(handle)))
+   EXPECT_CALL(*fake_service::singleton, stop_monitoring(static_cast<int>(fd)))
       .Times(1);
 
    // Act
-   target->stop_monitoring(handle);
+   target->stop_monitoring(fd);
 
    // Assert
-   // On mock expiration
+   ASSERT_FALSE(fd.valid());
 }
 
 }

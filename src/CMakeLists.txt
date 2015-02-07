@@ -3,17 +3,18 @@ cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 project(polling)
 
 add_library(polling STATIC
+      activation.h
       epoll_service.cpp
       epoll_service.h
-      event_handle.cpp
-      event_handle.h
-      event_engine.cpp
       event_engine.h
       event_service.cpp
       event_service.h
+      handle.h
+      mode.h
       notification.cpp
       notification.h
-      signal_manager.cpp
-      signal_manager.h
+      #signal_manager.cpp
+      #signal_manager.h
+      unique_handle.h
       bits/exceptions.h
    )

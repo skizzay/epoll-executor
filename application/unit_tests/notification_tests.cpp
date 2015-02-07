@@ -9,15 +9,18 @@
 
 namespace {
 
+using namespace std;
 using namespace epolling;
-using std::make_unique;
+using std::chrono::seconds;
+using std::experimental::post;
+using std::experimental::thread_pool;
 
-constexpr std::size_t max_events_per_poll = 10;
+constexpr size_t max_events_per_poll = 10;
 
 struct notification_tests : public ::testing::Test {
    notification_tests() :
       Test(),
-      engine(event_engine::create<epoll_service>(max_events_per_poll)),
+      engine(std::make_shared<event_engine<epoll_service>>((max_events_per_poll))),
       polling_result(),
       run_result()
    {
@@ -27,13 +30,13 @@ struct notification_tests : public ::testing::Test {
       join();
    }
 
-   inline std::unique_ptr<notification> create_target() {
+   inline unique_ptr<notification> create_target() {
       return make_unique<notification>(*engine, notification::behavior::conditional, 0);
    }
 
    inline void run() {
       if (!polling_result.valid()) {
-         polling_result = std::async(std::launch::async, [=] { return engine->run(); });
+         polling_result = async(launch::async, [=] { return engine->run(); });
       }
    }
 
@@ -47,10 +50,10 @@ struct notification_tests : public ::testing::Test {
    inline bool try_poll() {
       bool result = false;
       try {
-         result = engine->poll(std::chrono::seconds{0});
+         result = engine->poll(chrono::seconds{0});
       }
-      catch (const std::exception &e) {
-         std::cerr << e.what() << std::endl;
+      catch (const exception &e) {
+         cerr << e.what() << endl;
       }
       return result;
    }
@@ -60,60 +63,36 @@ struct notification_tests : public ::testing::Test {
       try {
          result = engine->poll_one();
       }
-      catch (const std::exception &e) {
-         std::cerr << e.what() << std::endl;
+      catch (const exception &e) {
+         cerr << e.what() << endl;
       }
       return result;
    }
 
-   std::shared_ptr<event_engine> engine;
-   std::future<std::error_code> polling_result;
-   std::error_code run_result;
+   shared_ptr<event_engine<epoll_service>> engine;
+   future<error_code> polling_result;
+   error_code run_result;
 };
 
 
 TEST_F(notification_tests, constructor) {
    run();
-   const std::size_t num_threads = std::thread::hardware_concurrency();
-   std::vector<std::unique_ptr<notification>> notifications;
-   notifications.reserve(num_threads * 2);
-   for (std::size_t i = 0; i < notifications.capacity(); ++i) {
+   const size_t num_threads = thread::hardware_concurrency();
+   vector<unique_ptr<notification>> notifications;
+   notifications.reserve(num_threads * 5);
+   for (size_t i = 0; i < notifications.capacity(); ++i) {
       notifications.emplace_back(create_target());
    }
 
-#if 0
-   std::vector<std::thread> threads;
-   threads.reserve(num_threads);
-   for (std::size_t i = 0; i < num_threads; ++i) {
-      threads.emplace_back([this, i, &notifications] {
-            notifications[i]->set(10 + (i + 1));
-            try_poll_one();
-            std::ostringstream out;
-            out << "Notification(i=" << i << ") = " << notifications[i]->get() << '\n';
-            std::cout << out.str() << std::flush;
-         });
-   }
+   thread_pool pool{num_threads};
 
-   for (auto &thread : threads) {
-      thread.join();
-   }
-#else
-   std::experimental::thread_pool pool;
-
-   for (std::size_t i = 0; i < notifications.size(); ++i) {
-      std::experimental::post(pool, [this, i, &notifications] {
+   for (size_t i = 0; i < notifications.size(); ++i) {
+      post(pool, [this, i, &notifications] {
             notifications[i]->set(i + 1);
          });
    }
 
    pool.join();
-#endif
-
-#if 0
-   for (std::size_t i = 0; i < notifications.size(); ++i) {
-      std::cout << "Notification(i=" << i << ") = " << notifications[i]->get() << std::endl;
-   }
-#endif
 }
 
 }
