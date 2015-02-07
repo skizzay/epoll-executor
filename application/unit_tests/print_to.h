@@ -2,14 +2,19 @@
 #ifndef EPOLLING_PRINT_TO_H__
 #define EPOLLING_PRINT_TO_H__
 
-#include <iosfwd>
+#include "handle.h"
+#include <ostream>
 
 namespace epolling {
 
 class event_handle;
 enum class mode : int;
 
-void PrintTo(const event_handle &handle, std::ostream *os);
+template<class Tag, class Impl, Impl Invalid>
+void PrintTo(const handle<Tag, Impl, Invalid> &h, std::ostream *os) {
+   *os << "handle{" << h.native_handle() << '}';
+}
+
 void PrintTo(mode flags, std::ostream *os);
 
 }

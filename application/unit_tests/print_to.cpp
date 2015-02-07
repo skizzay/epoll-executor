@@ -1,8 +1,6 @@
 // vim: sw=3 ts=3 expandtab cindent
 #include "print_to.h"
-#include "event_handle.h"
 #include "mode.h"
-#include <ostream>
 #include <experimental/string_view>
 #include <vector>
 
@@ -10,11 +8,6 @@ using std::experimental::string_view;
 using std::vector;
 
 namespace epolling {
-
-void PrintTo(const event_handle &handle, std::ostream *os) {
-   *os << "event_handle(" << handle.native_handle() << ')';
-}
-
 
 void PrintTo(mode flags, std::ostream *os) {
    vector<string_view> out_flags;

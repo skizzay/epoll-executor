@@ -7,8 +7,6 @@ add_library(polling STATIC
       epoll_service.cpp
       epoll_service.h
       event_engine.h
-      event_service.cpp
-      event_service.h
       handle.h
       mode.h
       notification.cpp
