@@ -4,6 +4,7 @@
 
 #include "activation.h"
 #include "mode.h"
+#include "signal_handle.h"
 #include <experimental/executor>
 #include <gmock/gmock.h>
 
@@ -13,6 +14,7 @@ public:
    using handle = epolling::handle<Tag, Impl, Invalid>;
    using mode = epolling::mode;
    using native_handle_type = epolling::native_handle_type;
+   using signal_handle = epolling::signal_handle;
 
    static fake_service *singleton;
 
@@ -40,8 +42,8 @@ public:
    MOCK_METHOD3(start_monitoring, void(native_handle_type, mode, void *));
    MOCK_METHOD2(update_monitoring, void(native_handle_type, mode));
    MOCK_METHOD1(stop_monitoring, void(native_handle_type));
-   MOCK_METHOD1(block_on_signals, void(const ::sigset_t *));
    MOCK_METHOD2(poll, std::pair<std::error_code, bool>(std::size_t, std::chrono::nanoseconds));
+   MOCK_METHOD1(block_signals, std::error_code(const signal_handle &));
    MOCK_METHOD0(shutdown_service, void());
 
 private:

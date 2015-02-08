@@ -5,6 +5,7 @@
 #include "activation.h"
 #include "mode.h"
 #include "bits/exceptions.h"
+#include "signal_handle.h"
 #include <algorithm>
 #include <atomic>
 #include <csignal>
@@ -47,15 +48,11 @@ inline epolling::mode convert_flags(uint32_t in_flags) noexcept {
 }
 
 
-inline int do_poll(int epoll_fd, ::epoll_event *events, int max_events, int timeout, const ::sigset_t *signals) {
+inline int do_poll(int epoll_fd, ::epoll_event *events, int max_events, int timeout, const ::sigset_t &blocked_signals) {
    assert(events != nullptr);
    assert(max_events >= 0);
 
-   if (signals == nullptr) {
-      return ::epoll_wait(epoll_fd, events, max_events, timeout);
-   }
-
-   return ::epoll_pwait(epoll_fd, events, max_events, timeout, signals);
+   return ::epoll_pwait(epoll_fd, events, max_events, timeout, &blocked_signals);
 }
 
 
@@ -89,9 +86,11 @@ public:
 
    explicit epoll_service(std::experimental::execution_context &e) :
       std::experimental::execution_context::service(e),
-      signals(nullptr),
+      blocked_signals(),
       epoll_fd(::epoll_create1(EPOLL_CLOEXEC))
    {
+      safe([=] { return ::sigemptyset(&blocked_signals); },
+           "Failed to create an empty signal set.");
    }
 
    virtual ~epoll_service() noexcept final override {
@@ -130,15 +129,6 @@ public:
       return ec;
    }
 
-   inline void block_on_signals(const ::sigset_t *signal_set) {
-      details_::errno_context c;
-      if ((signals != nullptr) && (signals != signal_set) && (signal_set != nullptr)) {
-         errno = EEXIST;
-         throw std::system_error(c.create_error_code(), "Cannot register more than one signal manager with epoll.");
-      }
-      signals = signal_set;
-   }
-
    inline std::pair<std::error_code, bool> poll(std::size_t max_events, std::chrono::nanoseconds timeout) {
       using std::begin;
       using std::end;
@@ -149,7 +139,7 @@ public:
       std::vector<::epoll_event> events{max_events, {0U, {nullptr}}};
       int num_events = details_::do_poll(epoll_fd, events.data(), events.size(),
                                          duration_cast<std::chrono::milliseconds>(timeout).count(),
-                                         signals);
+                                         blocked_signals);
 
       if (0 < num_events) {
          for_each(begin(events), begin(events) + num_events, details_::fire_event_callbacks);
@@ -162,11 +152,21 @@ public:
       return make_pair(make_error_code(static_cast<std::errc>(errno)), false);
    }
 
+   inline std::error_code block_signal(const signal_handle &signum) {
+      return add_to_signals(blocked_signals, signum);
+   }
+
 
 private:
-   struct tag {};
+   struct eventfd_tag {};
 
    using event_activation_store = basic_activation_store<void(mode), int>;
+
+   static inline std::error_code add_to_signals(::sigset_t &signals, const signal_handle &signum) {
+      std::error_code result;
+      (void)safe([&signals, signum] { return ::sigaddset(&signals, signum); }, result);
+      return result;
+   }
 
    virtual void shutdown_service() final override {
       if (epoll_fd.valid()) {
@@ -178,8 +178,8 @@ private:
    }
 
    event_activation_store activations;
-   const ::sigset_t *signals;
-   handle<tag, int, -1> epoll_fd;
+   ::sigset_t blocked_signals;
+   handle<eventfd_tag, int, -1> epoll_fd;
 };
 
 }

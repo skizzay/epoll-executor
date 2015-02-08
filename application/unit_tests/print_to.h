@@ -12,7 +12,7 @@ enum class mode : int;
 
 template<class Tag, class Impl, Impl Invalid>
 void PrintTo(const handle<Tag, Impl, Invalid> &h, std::ostream *os) {
-   *os << "handle{" << h.native_handle() << '}';
+   *os << "handle{" << static_cast<Impl>(h) << '}';
 }
 
 void PrintTo(mode flags, std::ostream *os);

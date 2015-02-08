@@ -3,6 +3,7 @@
 #define EPOLLING_EVENT_ENGINE_H__
 
 #include "activation.h"
+#include "signal_handle.h"
 #include <atomic>
 #include <chrono>
 #include <experimental/executor>
@@ -49,14 +50,17 @@ public:
    template<class Tag, class Impl, Impl Invalid>
    inline void stop_monitoring(handle<Tag, Impl, Invalid> &h);
 
+   inline std::error_code block_signal(signal_handle signum);
+
    inline void quit();
    inline bool running() const;
+   inline bool polling() const;
    inline const time_point &time() const;
 
 private:
-   void set_signal_manager(const signal_manager *manager);
    void do_stop(EventService *srvc, std::error_code reason);
    void wait_until_not_running();
+   void wait_until_woken_up();
 
    template<class DurationType>
    bool do_poll(EventService *srvc, std::size_t max_events_to_poll, DurationType timeout);
@@ -68,6 +72,7 @@ private:
    std::atomic<EventService*> service;
    std::unique_ptr<notification, Delete<notification>> wakeup;
    const std::size_t max_events_per_poll;
+   std::atomic<bool> service_polling;
    std::atomic<bool> exit_flag;
    std::atomic<bool> quitting;
    std::atomic<std::ptrdiff_t> execution_count;
