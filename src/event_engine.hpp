@@ -35,18 +35,12 @@ template<class EventService>
 class reset_for_execution final {
    using time_point = std::chrono::steady_clock::time_point;
 
-   std::atomic<bool> &exit_flag;
    std::atomic<std::ptrdiff_t> &execution_count;
-   std::error_code &stop_reason;
-   time_point &now;
 
 public:
-   inline reset_for_execution(std::atomic<bool> &ef, std::atomic<std::ptrdiff_t> &ec, std::error_code &sr,
-                              std::atomic<EventService*> &srvc, time_point &t) noexcept :
-      exit_flag(ef),
+   inline reset_for_execution(std::atomic<bool> &exit_flag, std::atomic<std::ptrdiff_t> &ec, std::error_code &stop_reason,
+                              std::atomic<EventService*> &srvc, time_point &now) noexcept :
       execution_count(ec),
-      stop_reason(sr),
-      now(t),
       service(srvc.load())
    {
       if (service != nullptr) {
@@ -217,7 +211,7 @@ inline void event_engine<ES, D>::quit() {
 
 template<class ES, template<class> class D>
 inline bool event_engine<ES, D>::running() const {
-   return execution_count > 0U;
+   return execution_count > 0;
 }
 
 
@@ -275,14 +269,13 @@ inline void event_engine<ES, D>::wait_until_woken_up() {
 template<class ES, template<class> class D>
 template<class DurationType>
 inline bool event_engine<ES, D>::do_poll(ES *srvc, std::size_t max_events_to_poll, DurationType timeout) {
-   using std::ignore;
    using std::tie;
 
    bool events_executed = false;
 
    if (srvc != nullptr) {
       details_::poll_service<ES, DurationType> poller{service_polling, max_events_to_poll, timeout, srvc};
-      tie(ignore, events_executed) = poller.go();
+      tie(std::ignore, events_executed) = poller.go();
    }
 
    return events_executed;
